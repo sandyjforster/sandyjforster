@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zoomable Map Prototype</title>
+    <style>
+      :root {
+        font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: #1f2328;
+        background: #f6f7f9;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .panel {
+        max-width: 1000px;
+        margin: 24px auto;
+        border: 1px solid #d8dde6;
+        background: #fff;
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        min-height: 520px;
+      }
+
+      .table-section {
+        border-right: 1px solid #e1e6ee;
+        padding: 16px 20px;
+      }
+
+      .table-section h2 {
+        font-size: 16px;
+        margin: 0 0 16px 0;
+        font-weight: 600;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      thead th {
+        text-align: left;
+        color: #6b7280;
+        font-weight: 600;
+        font-size: 11px;
+        letter-spacing: 0.05em;
+        padding: 10px 0;
+        border-bottom: 1px solid #e5e7eb;
+      }
+
+      tbody td {
+        padding: 14px 0;
+        border-bottom: 1px solid #eef1f6;
+      }
+
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .map-section {
+        position: relative;
+        overflow: hidden;
+        background: #fafafa;
+      }
+
+      .map-toolbar {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 2;
+      }
+
+      .map-toolbar button {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        border: 1px solid #d7dce3;
+        background: #ffffff;
+        cursor: pointer;
+        font-size: 18px;
+      }
+
+      .map-toolbar button:active {
+        transform: scale(0.98);
+      }
+
+      .map-container {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .map-viewport {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        cursor: grab;
+      }
+
+      .map-viewport:active {
+        cursor: grabbing;
+      }
+
+      .map-layer {
+        position: absolute;
+        inset: 0;
+        transform-origin: center;
+        transition: transform 0.05s ease-out;
+      }
+
+      .map-image {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        opacity: 0.9;
+      }
+
+      .map-marker {
+        position: absolute;
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        background: rgba(193, 225, 78, 0.9);
+        border: 2px solid #94b321;
+        box-shadow: 0 0 0 6px rgba(193, 225, 78, 0.3);
+      }
+
+      .marker-uk {
+        left: 52.5%;
+        top: 36.5%;
+      }
+
+      .marker-lux {
+        left: 54.5%;
+        top: 38.5%;
+        width: 34px;
+        height: 34px;
+      }
+
+      .helper-text {
+        position: absolute;
+        left: 20px;
+        bottom: 20px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        font-size: 12px;
+        color: #6b7280;
+        z-index: 2;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <section class="table-section">
+        <h2>Endorsed country limits (2)</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>COUNTRY</th>
+              <th>AGGREGATE LIM...</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>🇬🇧 United Kingdom</td>
+              <td>£20.7m</td>
+            </tr>
+            <tr>
+              <td>🇱🇺 Luxembourg</td>
+              <td>£10m</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="map-section">
+        <div class="map-toolbar">
+          <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+          <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+          <button type="button" data-zoom="reset" aria-label="Reset zoom">⟲</button>
+        </div>
+        <div class="map-container">
+          <div class="map-viewport" id="mapViewport">
+            <div class="map-layer" id="mapLayer">
+              <img
+                class="map-image"
+                alt="World map"
+                src="https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg"
+              />
+              <div class="map-marker marker-uk" aria-label="United Kingdom"></div>
+              <div class="map-marker marker-lux" aria-label="Luxembourg"></div>
+            </div>
+          </div>
+        </div>
+        <div class="helper-text">Scroll or drag to zoom and pan</div>
+      </section>
+    </div>
+    <script>
+      const mapLayer = document.getElementById("mapLayer");
+      const mapViewport = document.getElementById("mapViewport");
+      const zoomButtons = document.querySelectorAll("[data-zoom]");
+
+      let scale = 1;
+      let translateX = 0;
+      let translateY = 0;
+      let isDragging = false;
+      let dragStart = { x: 0, y: 0 };
+
+      const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+      const updateTransform = () => {
+        mapLayer.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+      };
+
+      const zoomTo = (newScale, originX = 0, originY = 0) => {
+        const nextScale = clamp(newScale, 0.7, 3.5);
+        const scaleDelta = nextScale / scale;
+
+        translateX = originX + (translateX - originX) * scaleDelta;
+        translateY = originY + (translateY - originY) * scaleDelta;
+        scale = nextScale;
+
+        updateTransform();
+      };
+
+      zoomButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const action = button.dataset.zoom;
+          if (action === "reset") {
+            scale = 1;
+            translateX = 0;
+            translateY = 0;
+            updateTransform();
+            return;
+          }
+
+          const delta = action === "in" ? 0.2 : -0.2;
+          zoomTo(scale + delta);
+        });
+      });
+
+      mapViewport.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        const rect = mapViewport.getBoundingClientRect();
+        const offsetX = event.clientX - rect.left - rect.width / 2;
+        const offsetY = event.clientY - rect.top - rect.height / 2;
+        const zoomAmount = event.deltaY > 0 ? -0.15 : 0.15;
+        zoomTo(scale + zoomAmount, offsetX, offsetY);
+      });
+
+      mapViewport.addEventListener("mousedown", (event) => {
+        isDragging = true;
+        dragStart = {
+          x: event.clientX - translateX,
+          y: event.clientY - translateY,
+        };
+      });
+
+      mapViewport.addEventListener("mousemove", (event) => {
+        if (!isDragging) return;
+        translateX = event.clientX - dragStart.x;
+        translateY = event.clientY - dragStart.y;
+        updateTransform();
+      });
+
+      mapViewport.addEventListener("mouseup", () => {
+        isDragging = false;
+      });
+
+      mapViewport.addEventListener("mouseleave", () => {
+        isDragging = false;
+      });
+
+      updateTransform();
+    </script>
+  </body>
+</html>
